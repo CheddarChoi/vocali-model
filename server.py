@@ -21,20 +21,21 @@ class UserInfo(BaseModel):
   maxPitch: Optional[str] = ''
   moods: Optional[List[str]] = []
 
+
 def server_start():
     model.init_model()
 
-class CustomServer(Server):
-    def __call__(self, app, *args, **kwargs):
+class VocaliServer(Flask):
+  def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+    if not self.debug or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+      with self.app_context():
         server_start()
-        return Server.__call__(self, app, *args, **kwargs)
+    super(VocaliServer, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
 
-app = Flask(__name__)
+
+port = int(os.environ.get("PORT", 5000))
+app = VocaliServer(__name__)
 CORS(app, resources={r'*': {'origins': '*'}})
-manager = Manager(app)
-
-# Remeber to add the command to your Manager instance
-manager.add_command('runserver', CustomServer())
 
 @app.route('/recommendations', methods = ['POST'])
 def index():
@@ -56,7 +57,4 @@ def test():
     return "hi!"
 
 if __name__ == "__main__":
-    # port = int(os.environ.get("PORT", 5000))
-    # manager.run(host="0.0.0.0", port=port)
-    manager.run()
-    # app.run()
+    app.run(host="0.0.0.0", port=port)
