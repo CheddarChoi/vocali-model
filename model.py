@@ -3,9 +3,6 @@ import pandas as pd
 import numpy as np
 from scipy import sparse
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.metrics import mean_squared_error
-import xgboost as xgb
-from surprise import Reader, Dataset, BaselineOnly, KNNBaseline, SVD, SVDpp
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -77,70 +74,6 @@ def get_average_rating(sparse_matrix, is_user):
     average_ratings = {i: sum_of_ratings[i]/no_of_ratings[i] for i in range(rows if is_user else cols) if no_of_ratings[i] != 0}
     return average_ratings
 
-# Calculates the similarity between users
-def compute_user_similarity(sparse_matrix):
-    row_index, col_index = sparse_matrix.nonzero()
-    rows = np.unique(row_index)
-    similar_arr = np.zeros(len(rows) * len(rows)).reshape(len(rows), len(rows))
-
-    for row in rows:
-        sim = cosine_similarity(sparse_matrix.getrow(row), sparse_matrix).ravel()
-        similar_indices = sim.argsort()
-        similar = sim[similar_indices]
-        similar_arr[row] = similar
-    
-    return similar_arr
-
-# Calculates the similarity between tracks
-def compute_track_similarity(sparse_matrix, track_id):
-    similarity = cosine_similarity(sparse_matrix.T, dense_output=False)
-    similar_tracks = tracks[track_id], similarity[track_id]
-    return similar_tracks
-
-# Calculates the similar features of top 10 user and tracks for initial dataset
-def create_new_similar_features(sample_sparse_matrix):
-    global_avg_rating = get_average_rating(sample_sparse_matrix, False)
-    global_avg_users = get_average_rating(sample_sparse_matrix, True)
-    global_avg_tracks = get_average_rating(sample_sparse_matrix, False)
-    sample_train_users, sample_train_tracks, sample_train_ratings = sparse.find(sample_sparse_matrix)
-    new_features_csv_file = open("../new_features.csv", mode = "w")
-    
-    for user, track, rating in zip(sample_train_users, sample_train_tracks, sample_train_ratings):
-        similar_arr = list()
-        similar_arr.append(user)
-        similar_arr.append(track)
-        #similar_arr.append(sample_sparse_matrix.sum()/sample_sparse_matrix.count_nonzero())
-        
-        similar_users = cosine_similarity(sample_sparse_matrix[user], sample_sparse_matrix).ravel()
-        indices = np.argsort(-similar_users)[1:]
-        ratings = sample_sparse_matrix[indices, track].toarray().ravel()
-        top_similar_user_ratings = list(ratings[:5])
-        top_similar_user_ratings.extend([global_avg_rating[track]] * (5-len(ratings)))
-        similar_arr.extend(top_similar_user_ratings)
-        
-        similar_tracks = cosine_similarity(sample_sparse_matrix[:,track].T, sample_sparse_matrix.T).ravel()
-        similar_tracks_indices = np.argsort(-similar_tracks)[1:]
-        similar_tracks_ratings = sample_sparse_matrix[user, similar_tracks_indices].toarray().ravel()
-        top_similar_track_ratings = list(similar_tracks_ratings[:5])
-        top_similar_track_ratings.extend([global_avg_users[user]] * (5-len(top_similar_track_ratings)))
-        similar_arr.extend(top_similar_track_ratings)
-        
-        #similar_arr.append(global_avg_users[user])
-        #similar_arr.append(global_avg_tracks[track])
-        similar_arr.append(rating)
-        
-        new_features_csv_file.write(",".join(map(str, similar_arr)))
-        new_features_csv_file.write("\n")
-        
-    new_features_csv_file.close()
-    new_features_df = pd.read_csv('../new_features.csv', names = ["user_id", "track_id", "similar_user_rating1", 
-                                                               "similar_user_rating2", "similar_user_rating3", "similar_user_rating4", "similar_user_rating5",
-                                                               "similar_track_rating1", "similar_track_rating2", 
-                                                               "similar_track_rating3", "similar_track_rating4", "similar_track_rating5",
-                                                               "rating"])
-    
-    return new_features_df
-
 # Calculates the similar features of top 10 user and tracks
 def create_new_similar_features_for_new_user(sample_sparse_matrix, new_user):
     global_avg_rating = get_average_rating(sample_sparse_matrix, False)
@@ -186,11 +119,6 @@ def create_new_similar_features_for_new_user(sample_sparse_matrix, new_user):
     
     return new_features_df
 
-# Calculates the error of the users
-def error_metrics(y_true, y_pred):
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    return rmse
-
 
 def init_model():
     print("Init model start")
@@ -200,49 +128,11 @@ def init_model():
     context['data'] = data
     context['final_tracks_ids'] = final_tracks_ids
 
-    # Getting matrix factorization with suprise SVD model
-    reader = Reader(rating_scale=(0,1))
-    train_data_mf = Dataset.load_from_df(data[['user', 'track', 'rating']], reader)
-    trainset = train_data_mf.build_full_trainset()
-    svd = SVD(n_factors=100, biased=True, random_state=15, verbose=True)
-    svd.fit(trainset)
-
-    # Getting predictions of train set with SVD
-    train_preds = svd.test(trainset.build_testset())
-    train_pred_mf = np.array([pred.est for pred in train_preds])
-
-    # Splitting train and test data
-    split_value = int(len(data) * 0.80)
-    train_data = data[:split_value]
-    test_data = data[split_value:]
-
-    train_sparse_data = get_user_item_sparse_matrix(train_data)
-    test_sparse_data = get_user_item_sparse_matrix(test_data)
-
-    global_average_rating = train_sparse_data.sum()/train_sparse_data.count_nonzero()
-    
-    similar_user_matrix = compute_user_similarity(train_sparse_data)
-    similar_user_matrix
-
-    train_new_similar_features = create_new_similar_features(train_sparse_data)
-    test_new_similar_features = create_new_similar_features(test_sparse_data)
-
-    x_train = train_new_similar_features.drop(["user_id", "track_id", "rating"], axis = 1)
-    x_test = test_new_similar_features.drop(["user_id", "track_id", "rating"], axis = 1)
-    y_train = train_new_similar_features["rating"]
-    y_test = test_new_similar_features["rating"]
-
-    # XGB Model
-    clf = xgb.XGBRegressor(n_estimators = 100, silent = False, n_jobs  = 21, random_state=15, objective='reg:squarederror', learning_rate=0.05, num_round=200, max_depth=6)
-    clf.fit(x_train, y_train, eval_metric = 'rmse')
-
-    y_pred_test = clf.predict(x_test)
+    with open("clf.pkl", 'rb') as file:
+        clf = pickle.load(file)
     context['clf'] = clf
 
-    rmse_test = error_metrics(y_test, y_pred_test)
-
-    trained_sparse_matrix = get_user_item_sparse_matrix(data)
-    trained_features = create_new_similar_features(trained_sparse_matrix)
+    trained_features = pd.read_csv('trained_features.csv')
     context['trained_features'] = trained_features
 
     # Mood Analysis

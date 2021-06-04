@@ -5,7 +5,7 @@ from flask_cors import CORS, cross_origin
 from pydantic import BaseModel
 from typing import List, Optional
 
-import model
+import model, os
 
 class textField(BaseModel) :
   text: str
@@ -56,6 +56,7 @@ def test():
     return "hi!"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    manager.run(host="0.0.0.0", port=port)
+    # port = int(os.environ.get("PORT", 5000))
+    # manager.run(host="0.0.0.0", port=port)
+    manager.run()
     # app.run()
