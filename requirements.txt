@@ -1,0 +1,15 @@
+numpy==1.20.3
+fastapi==0.65.1
+keras==2.4.3
+pandas==1.2.4
+pydantic==1.8.2
+scikit_learn==0.24.2
+scipy==1.6.3
+surprise==0.1
+xgboost==1.4.2
+uvicorn==0.12.3
+aiofiles==0.6.0
+python-multipart==0.0.5
+jinja2==2.11.2
+tensorflow-cpu==2.5.0
+starlette-context==0.3.2
